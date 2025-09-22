@@ -8,7 +8,6 @@ def execute(filters=None):
     data = get_data(filters)
     return columns, data
 
-
 def get_columns():
     return [
         {"label": "Voucher No", "fieldname": "voucher_no", "fieldtype": "Dynamic Link", "options": "voucher_type", "width": 180},
@@ -22,7 +21,6 @@ def get_columns():
         {"label": "Actions", "fieldname": "actions", "fieldtype": "Data", "width": 150},
         {"label": "View Items", "fieldname": "view_items", "fieldtype": "Data", "width": 120},
     ]
-
 
 def get_data(filters):
     if not filters.get("voucher_type"):
@@ -122,9 +120,131 @@ def get_data(filters):
 def update_entry(voucher_no, voucher_type):
     return f"Update logic for {voucher_type} - {voucher_no}"
 
+
 @frappe.whitelist()
-def create_entry(voucher_no, voucher_type):
-    return f"Create logic for {voucher_type} - {voucher_no}"
+def create_entry(voucher_no, voucher_type, target=None):
+    """
+    Creates a target document (Sales Invoice, Delivery Note, etc.) from a voucher.
+    Works even if the items are fully delivered/billed.
+    """
+    try:
+        doc = None
+
+        if voucher_type == "Sales Order":
+            so = frappe.get_doc("Sales Order", voucher_no)
+
+            if target == "Sales Invoice":
+                doc = frappe.new_doc("Sales Invoice")
+                doc.customer = so.customer
+                doc.company = so.company
+                doc.due_date = so.delivery_date
+                doc.update_stock = 0  
+
+                for d in so.items:
+                    doc.append("items", {
+                        "item_code": d.item_code,
+                        "item_name": d.item_name,
+                        "qty": d.qty,          
+                        "rate": d.rate,
+                        "amount": d.amount,
+                        "sales_order": so.name
+                    })
+
+            elif target == "Delivery Note":
+                doc = frappe.new_doc("Delivery Note")
+                doc.customer = so.customer
+                doc.company = so.company
+                doc.posting_date = frappe.utils.today()
+
+                for d in so.items:
+                    doc.append("items", {
+                        "item_code": d.item_code,
+                        "item_name": d.item_name,
+                        "qty": d.qty,
+                        "rate": d.rate,
+                        "sales_order": so.name
+                    })
+
+        elif voucher_type == "Purchase Order":
+            po = frappe.get_doc("Purchase Order", voucher_no)
+
+            if target == "Purchase Invoice":
+                doc = frappe.new_doc("Purchase Invoice")
+                doc.supplier = po.supplier
+                doc.company = po.company
+                doc.due_date = po.schedule_date
+
+                for d in po.items:
+                    doc.append("items", {
+                        "item_code": d.item_code,
+                        "item_name": d.item_name,
+                        "qty": d.qty,
+                        "rate": d.rate,
+                        "amount": d.amount,
+                        "purchase_order": po.name
+                    })
+
+            elif target == "Purchase Receipt":
+                doc = frappe.new_doc("Purchase Receipt")
+                doc.supplier = po.supplier
+                doc.company = po.company
+                doc.posting_date = frappe.utils.today()
+
+                for d in po.items:
+                    doc.append("items", {
+                        "item_code": d.item_code,
+                        "item_name": d.item_name,
+                        "qty": d.qty,
+                        "rate": d.rate,
+                        "purchase_order": po.name
+                    })
+
+        elif voucher_type == "Sales Invoice" and target == "Delivery Note":
+            si = frappe.get_doc("Sales Invoice", voucher_no)
+            doc = frappe.new_doc("Delivery Note")
+            doc.customer = si.customer
+            doc.company = si.company
+            doc.posting_date = frappe.utils.today()
+            for d in si.items:
+                doc.append("items", {
+                    "item_code": d.item_code,
+                    "item_name": d.item_name,
+                    "qty": d.qty,
+                    "rate": d.rate,
+                    "sales_invoice": si.name
+                })
+
+        elif voucher_type == "Purchase Invoice" and target == "Purchase Receipt":
+            pi = frappe.get_doc("Purchase Invoice", voucher_no)
+            doc = frappe.new_doc("Purchase Receipt")
+            doc.supplier = pi.supplier
+            doc.company = pi.company
+            doc.posting_date = frappe.utils.today()
+            for d in pi.items:
+                doc.append("items", {
+                    "item_code": d.item_code,
+                    "item_name": d.item_name,
+                    "qty": d.qty,
+                    "rate": d.rate,
+                    "purchase_invoice": pi.name
+                })
+
+        if not doc:
+            return f"No mapping found for this action: {voucher_type} → {target}"
+
+        if not doc.items:
+            frappe.throw(f"No items found to create {target} from {voucher_type} {voucher_no}")
+
+        doc.insert(ignore_permissions=True)
+        doc.submit()
+
+        return f"{doc.doctype} <b>{doc.name}</b> created successfully from {voucher_type} {voucher_no}"
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Unified Report Create Entry")
+        return f"Error creating {target} from {voucher_type} {voucher_no}: {str(e)}"
+
+
 
 @frappe.whitelist()
 def get_items(voucher_no, voucher_type):
@@ -137,7 +257,13 @@ def get_items(voucher_no, voucher_type):
         <table class="table table-bordered">
             <tr><th>Item Code</th><th>Item Name</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
             {% for i in items %}
-                <tr><td>{{ i.item_code }}</td><td>{{ i.item_name }}</td><td>{{ i.qty }}</td><td>{{ i.rate }}</td><td>{{ i.amount }}</td></tr>
+                <tr>
+                    <td>{{ i.item_code }}</td>
+                    <td>{{ i.item_name }}</td>
+                    <td>{{ i.qty }}</td>
+                    <td>{{ i.rate }}</td>
+                    <td>{{ i.amount }}</td>
+                </tr>
             {% endfor %}
         </table>
     """, {"items": items})
