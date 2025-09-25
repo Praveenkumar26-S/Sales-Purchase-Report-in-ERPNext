@@ -91,16 +91,7 @@ frappe.query_reports["Unified Report For Vouchers"] = {
     }
 };
 
-
-
-function updateEntry(voucher_no, voucher_type) {
-    frappe.call({
-        method: "demo.demo.report.unified_report_for_vouchers.unified_report_for_vouchers.update_entry",
-        args: { voucher_no, voucher_type },
-        callback: function(r) { frappe.msgprint(r.message); }
-    });
-}
-
+     
 function openCreateChooser(voucher_no, voucher_type) {
     let options = [];
 
@@ -119,7 +110,7 @@ function openCreateChooser(voucher_no, voucher_type) {
         return;
     }
 
-    let d = new frappe.ui.Dialog({
+    let dialog = new frappe.ui.Dialog({
         title: __("Create from {0}", [voucher_no]),
         fields: [
             {
@@ -140,8 +131,8 @@ function openCreateChooser(voucher_no, voucher_type) {
     });
     html += "</div>";
 
-    d.fields_dict.options_area.$wrapper.html(html);
-    d.show();
+    dialog.fields_dict.options_area.$wrapper.html(html);
+    dialog.show();
 }
 
 function createEntry(voucher_no, voucher_type, target=null) {
@@ -158,7 +149,7 @@ function createEntry(voucher_no, voucher_type, target=null) {
 
 function viewItems(voucher_no, voucher_type) {
     frappe.call({
-        method: "demo.demo.report.unified_report_for_vouchers.unified_report_for_vouchers.get_items",
+        method: "demo.demo.report.unified_report_for_vouchers.unified_report_for_vouchers.view_items",
         args: { voucher_no: voucher_no, voucher_type: voucher_type },
         callback: function(r){
             if(r.message){
@@ -171,3 +162,120 @@ function viewItems(voucher_no, voucher_type) {
         }
     });
 }
+
+function updateEntry(voucher_no, voucher_type) {
+    frappe.call({
+        method: "demo.demo.report.unified_report_for_vouchers.unified_report_for_vouchers.get_voucher_items",
+        args: { voucher_type: voucher_type, voucher_no: voucher_no},
+        callback: function(r) {
+            if (!r.message) {
+                frappe.msgprint("No items found.");
+                return;
+            }
+
+            let items = r.message.items || [];
+
+            let dialog = new frappe.ui.Dialog({
+                title: __("Update Items for " + voucher_no),
+                fields: [
+                    {
+                        fieldname: "items",
+                        fieldtype: "Table",
+                        label: "Items",
+                        in_place_edit: true,
+                        fields: [
+                            { fieldtype: "Data", fieldname: "item_code", label: "Item Code", in_list_view: true, reqd: 1 },
+                            { fieldtype: "Data", fieldname: "item_name", label: "Item Name", in_list_view: true, reqd: 1},
+                            { fieldtype: "Data", fieldname: "description", label: "Description", in_list_view: true },
+                            { fieldtype: "Float", fieldname: "qty", label: "Qty", in_list_view: true, reqd: 1 },
+                            { fieldtype: "Data", fieldname: "uom", label: "UOM", in_list_view: true, reqd: 1 },
+                            { fieldtype: "Float", fieldname: "conversion_factor", label: "Conversion Factor", in_list_view: true, reqd: 1 },
+                            { fieldtype: "Currency", fieldname: "rate", label: "Rate", in_list_view: true },
+                            { fieldtype: "Currency", fieldname: "amount", label: "Amount", in_list_view: true }
+                        ],
+                        data: items
+                    }
+                ],
+                primary_action_label: __("Update"),
+                primary_action(values) {
+                    frappe.call({
+                        method: "demo.demo.report.unified_report_for_vouchers.unified_report_for_vouchers.update_voucher_items",
+                        args: {voucher_type: voucher_type, voucher_no: voucher_no, items: JSON.stringify(values.items)},
+                        callback: function(res) {
+                            frappe.msgprint(res.message.message);
+                            dialog.hide();
+                        }
+                    });
+                }
+            });
+            dialog.show();
+        }
+    });
+}
+
+
+
+
+// function updateEntry(voucher_no, voucher_type) {
+//     frappe.call({
+//         method: "demo.demo.report.unified_report_for_vouchers.unified_report_for_vouchers.update_items_dialog",
+//         args: { sales_order: voucher_no },  // pass voucher_no as sales_order
+//         callback: function(r) {
+//             if (!r.message || !r.message.length) {
+//                 frappe.msgprint("No items found.");
+//                 return;
+//             }
+
+//             let items = r.message.map(i => ({
+//                 item_code: i.item_code,
+//                 item_name: i.item_name,
+//                 description: i.description,
+//                 qty: i.qty,
+//                 uom: i.uom,
+//                 conversion_factor: 1.0,  // default if not present
+//                 rate: 0.0,               // default if not present
+//                 amount: 0.0              // default if not present
+//             }));
+
+//             let dialog = new frappe.ui.Dialog({
+//                 title: __("Update Items for " + voucher_no),
+//                 fields: [
+//                     {
+//                         fieldname: "items",
+//                         fieldtype: "Table",
+//                         label: "Items",
+//                         in_place_edit: true,
+//                         fields: [
+//                             { fieldtype: "Data", fieldname: "item_code", label: "Item Code", in_list_view: true, reqd: 1 },
+//                             { fieldtype: "Data", fieldname: "item_name", label: "Item Name", in_list_view: true, reqd: 1 },
+//                             { fieldtype: "Data", fieldname: "description", label: "Description", in_list_view: true },
+//                             { fieldtype: "Float", fieldname: "qty", label: "Qty", in_list_view: true, reqd: 1 },
+//                             { fieldtype: "Data", fieldname: "uom", label: "UOM", in_list_view: true, reqd: 1 },
+//                             { fieldtype: "Float", fieldname: "conversion_factor", label: "Conversion Factor", in_list_view: true, reqd: 1 },
+//                             { fieldtype: "Currency", fieldname: "rate", label: "Rate", in_list_view: true },
+//                             { fieldtype: "Currency", fieldname: "amount", label: "Amount", in_list_view: true }
+//                         ],
+//                         data: items
+//                     }
+//                 ],
+//                 primary_action_label: __("Update"),
+//                 primary_action(values) {
+//                     frappe.call({
+//                         method: "demo.demo.report.unified_report_for_vouchers.unified_report_for_vouchers.update_voucher_items",
+//                         args: {
+//                             voucher_type: voucher_type,
+//                             voucher_no: voucher_no,
+//                             items: JSON.stringify(values.items)
+//                         },
+//                         callback: function(res) {
+//                             frappe.msgprint(res.message.message);
+//                             dialog.hide();
+//                         }
+//                     });
+//                 }
+//             });
+
+//             dialog.show();
+//         }
+//     });
+// }
