@@ -1,5 +1,4 @@
 import frappe
-from frappe.utils import flt, getdate
 from erpnext.controllers.accounts_controller import update_child_qty_rate
 
 VOUCHER_MAP = {
@@ -10,7 +9,7 @@ VOUCHER_MAP = {
 
 def execute(filters=None):
     filters = filters or {}
-    voucher_type = filters.get("voucher_type") or "Sales Order"
+    voucher_type = filters.get("voucher_type")
     from_date = filters.get("from_date")
     to_date = filters.get("to_date")
 
@@ -60,9 +59,14 @@ def get_sales_rows(voucher_type, from_date, to_date, filters):
     if filters.get("customer"):
         conditions.append("customer = %(customer)s")
         values["customer"] = filters.get("customer")
+    if filters.get("status"):
+        conditions.append("status = %(status)s")
+        values["status"] = filters.get("status")
+
     if filters.get("customer_group"):
         conditions.append("customer_group = %(customer_group)s")
         values["customer_group"] = filters.get("customer_group")
+
 
     condition_str = " AND ".join(conditions)
 
@@ -128,17 +132,22 @@ def get_sales_rows(voucher_type, from_date, to_date, filters):
         row["view_items"] = ""
 
     return rows
+    
 
 @frappe.whitelist()
 def get_items(voucher_type, voucher_no):
     if voucher_type == "Sales Order":
         items = frappe.get_all("Sales Order Item",
             filters={"parent": voucher_no},
-            fields=["item_code", "item_name", "qty", "rate","amount", "delivered_qty"])
+            fields=["item_code", "item_name", "qty", "rate", "amount"])
     elif voucher_type == "Sales Invoice":
         items = frappe.get_all("Sales Invoice Item",
             filters={"parent": voucher_no},
-            fields=["item_code", "item_name", "qty", "rate","amount", "billed_qty"])
+            fields=["item_code", "item_name", "qty", "rate", "amount"])
+    elif voucher_type == "Delivery Note":
+        items = frappe.get_all("Delivery Note Item",
+            filters={"parent": voucher_no},
+            fields=["item_code", "item_name", "qty", "rate", "amount", "received_qty"])
     else:
         items = []
     return items

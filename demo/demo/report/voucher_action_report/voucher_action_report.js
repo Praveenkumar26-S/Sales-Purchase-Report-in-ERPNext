@@ -16,6 +16,12 @@ frappe.query_reports["Voucher Action Report"] = {
             "fieldtype": "Select",
             "options": ["Sales Order", "Sales Invoice", "Delivery Note"]
         },
+		{
+			"fieldname":"status",
+			"label": __("Status"),
+			"fieldtype": "Select",
+			"options": [ "","Draft","To Deliver and Bill","To Bill","To Deliver","Completed","Cancelled","Overdue"]
+		},
         {
             "fieldname":"customer",
             "label": __("Customer"),
@@ -54,7 +60,7 @@ frappe.query_reports["Voucher Action Report"] = {
 };
 
 function custom_update_voucher(voucher_no, voucher_type) {
-    if(voucher_type === "Sales Order") {
+    if (voucher_type === "Sales Order") {
         $.when(
             frappe.call({
                 method: "frappe.client.get",
@@ -66,7 +72,7 @@ function custom_update_voucher(voucher_no, voucher_type) {
             let fields = [];
 
             sales_order_item_doc.fields.forEach(function(df) {
-                if(["parent", "idx", "docstatus"].indexOf(df.fieldname) === -1) {
+                if (["parent", "idx", "docstatus"].indexOf(df.fieldname) === -1) {
                     fields.push({
                         fieldtype: df.fieldtype,
                         fieldname: df.fieldname,
@@ -132,6 +138,7 @@ function custom_update_voucher(voucher_no, voucher_type) {
     }
 }
 
+
 function view_items_dialog(voucher_type, voucher_no) {
     frappe.call({
         method: "demo.demo.report.voucher_action_report.voucher_action_report.get_items",
@@ -177,11 +184,147 @@ function view_items_dialog(voucher_type, voucher_no) {
 }
 
 function create_voucher(voucher_no, voucher_type) {
-    if(voucher_type === "Sales Order") {
-        frappe.new_doc("Sales Invoice", {sales_order: voucher_no});
-    } else if(voucher_type === "Sales Invoice") {
-        frappe.new_doc("Payment Entry", {reference_name: voucher_no});
-    } else if(voucher_type === "Delivery Note") {
-        frappe.new_doc("Sales Invoice", {delivery_note: voucher_no});
+    let dialog;
+    if (voucher_type === "Sales Order") {
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Sales Order"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label: __("Create Sales Invoice"),
+                    click() {
+                        create_sales_invoice_from_so(voucher_no);
+                        dialog.hide();
+                    }
+                },
+                {
+                    fieldtype: "Button",
+                    label: __("Create Delivery Note"),
+                    click() {
+                        create_delivery_note_from_so(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else if (voucher_type === "Sales Invoice") {
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Sales Invoice"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label: __("Create Payment Entry"),
+                    click() {
+                        create_payment_entry_from_si(voucher_no);
+                        dialog.hide();
+                    }
+                },
+                {
+                    fieldtype: "Button",
+                    label: __("Create Delivery Note"),
+                    click() {
+                        create_delivery_note_from_si(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else if (voucher_type === "Delivery Note") {
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Delivery Note"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label: __("Create Sales Invoice"),
+                    click() {
+                        create_sales_invoice_from_dn(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else {
+        frappe.msgprint(__("No create actions defined for this voucher type"));
+        return;
     }
+    dialog.show();
+}
+
+function create_sales_invoice_from_so(voucher_no) {
+    frappe.call({
+        method: "erpnext.selling.doctype.sales_order.sales_order.make_sales_invoice",
+        args: {
+            source_name: voucher_no
+        },
+        callback: function(r) {
+            if(r.message) {
+                frappe.model.with_doctype("Sales Invoice", function() {
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Sales Invoice", doc.name); 
+                });
+            }
+        }
+    });
+}
+
+function create_delivery_note_from_so(voucher_no) {
+    frappe.call({
+        method: "erpnext.selling.doctype.sales_order.sales_order.make_delivery_note",
+        args: {
+            source_name: voucher_no
+        },
+        callback: function(r) {
+            if(r.message) {
+                frappe.model.with_doctype("Delivery Note", function() {
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Delivery Note", doc.name);
+                });
+            }
+        }
+    });
+}
+
+function create_payment_entry_from_si(voucher_no) {
+    frappe.call({
+		method: "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
+        args: { dt: "Sales Invoice", dn: voucher_no },
+        callback: function(r) {
+            if(r.message) {
+                frappe.model.with_doctype("Payment Entry", function() {
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Payment Entry", doc.name);
+                });
+            }
+        }
+    });
+}
+
+function create_delivery_note_from_si(voucher_no) {
+    frappe.call({
+        method: "erpnext.accounts.doctype.sales_invoice.sales_invoice.make_delivery_note",
+        args: { source_name: voucher_no },
+        callback: function(r) {
+            if(r.message) {
+                frappe.model.with_doctype("Delivery Note", function() {
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Delivery Note", doc.name);
+                });
+            }
+        }
+    });
+}
+
+function create_sales_invoice_from_dn(voucher_no) {
+    frappe.call({
+        method: "erpnext.stock.doctype.delivery_note.delivery_note.make_sales_invoice",
+        args: { source_name: voucher_no },
+        callback: function(r) {
+            if(r.message) {
+                frappe.model.with_doctype("Sales Invoice", function() {
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Sales Invoice", doc.name);
+                });
+            }
+        }
+    });
 }
