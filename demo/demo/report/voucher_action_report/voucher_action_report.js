@@ -48,7 +48,7 @@ frappe.query_reports["Voucher Action Report"] = {
             let voucher_type = data.voucher_type;
             let update_btn = `<button class="btn btn-xs btn-secondary" onclick="custom_update_voucher('${voucher_no}', '${voucher_type}')">Update</button>`;
             let create_btn = `<button class="btn btn-xs btn-success" onclick="create_voucher('${voucher_no}', '${voucher_type}')">Create</button>`;
-            return `${update_btn} ${create_btn}`;
+			return `${update_btn} ${create_btn}`;
         }
 
         if(column.fieldname === "view_items") {
@@ -138,7 +138,6 @@ function custom_update_voucher(voucher_no, voucher_type) {
     }
 }
 
-
 function view_items_dialog(voucher_type, voucher_no) {
     frappe.call({
         method: "demo.demo.report.voucher_action_report.voucher_action_report.get_items",
@@ -152,102 +151,56 @@ function view_items_dialog(voucher_type, voucher_no) {
                     ]
                 });
 
-                let html = `<table class="table table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Item Code</th>	
-                            <th>Item Name</th>
-                            <th>Qty</th>
-                            <th>Rate</th>
-							<th>Amount</th>
-                            <th>Delivered Qty</th>
-						
-                        </tr>
-                    </thead>
-                    <tbody>`;
+                let html = `<table class="table table-bordered"><thead><tr>`;
+
+                if (voucher_type === "Sales Order") {
+                    html += `
+                        <th>Item Code</th>
+                        <th>Item Name</th>
+                        <th>Total Qty</th>
+                        <th>Rate</th>
+                        <th>Amount</th>
+                        <th>Delivered Qty</th>
+                        <th>Pending Qty</th>`;
+                } else {
+                    html += `
+                        <th>Item Code</th>
+                        <th>Item Name</th>
+                        <th>Qty</th>
+                        <th>Rate</th>
+                        <th>Amount</th>`;
+                }
+
+                html += `</tr></thead><tbody>`;
+
                 r.message.forEach(item => {
                     html += `<tr>
                         <td>${item.item_code}</td>
-                        <td>${item.item_name}</td>
-                        <td>${item.qty}</td>
-                        <td>${item.rate}</td>
-						<td>${item.amount}</td>
-                        <td>${item.delivered_qty || item.received_qty || 0}</td>
-                    </tr>`;
+                        <td>${item.item_name}</td>`;
+
+                    if (voucher_type === "Sales Order") {
+                        html += `
+                            <td>${item.total_qty}</td>
+                            <td>${item.rate}</td>
+                            <td>${item.amount}</td>
+                            <td>${item.delivered_qty || 0}</td>
+                            <td>${item.pending_qty || (item.total_qty - (item.delivered_qty || 0)) || 0}</td>`;
+                    } else {
+                        html += `
+                            <td>${item.qty}</td>
+                            <td>${item.rate}</td>
+                            <td>${item.amount}</td>`;
+                    }
+
+                    html += `</tr>`;
                 });
-                html += "</tbody></table>";
+
+                html += `</tbody></table>`;
                 dialog.fields_dict.items_html.$wrapper.html(html);
                 dialog.show();
             }
         }
     });
-}
-
-function create_voucher(voucher_no, voucher_type) {
-    let dialog;
-    if (voucher_type === "Sales Order") {
-        dialog = new frappe.ui.Dialog({
-            title: __("Create for Sales Order"),
-            fields: [
-                {
-                    fieldtype: "Button",
-                    label: __("Create Sales Invoice"),
-                    click() {
-                        create_sales_invoice_from_so(voucher_no);
-                        dialog.hide();
-                    }
-                },
-                {
-                    fieldtype: "Button",
-                    label: __("Create Delivery Note"),
-                    click() {
-                        create_delivery_note_from_so(voucher_no);
-                        dialog.hide();
-                    }
-                }
-            ]
-        });
-    } else if (voucher_type === "Sales Invoice") {
-        dialog = new frappe.ui.Dialog({
-            title: __("Create for Sales Invoice"),
-            fields: [
-                {
-                    fieldtype: "Button",
-                    label: __("Create Payment Entry"),
-                    click() {
-                        create_payment_entry_from_si(voucher_no);
-                        dialog.hide();
-                    }
-                },
-                {
-                    fieldtype: "Button",
-                    label: __("Create Delivery Note"),
-                    click() {
-                        create_delivery_note_from_si(voucher_no);
-                        dialog.hide();
-                    }
-                }
-            ]
-        });
-    } else if (voucher_type === "Delivery Note") {
-        dialog = new frappe.ui.Dialog({
-            title: __("Create for Delivery Note"),
-            fields: [
-                {
-                    fieldtype: "Button",
-                    label: __("Create Sales Invoice"),
-                    click() {
-                        create_sales_invoice_from_dn(voucher_no);
-                        dialog.hide();
-                    }
-                }
-            ]
-        });
-    } else {
-        frappe.msgprint(__("No create actions defined for this voucher type"));
-        return;
-    }
-    dialog.show();
 }
 
 function create_sales_invoice_from_so(voucher_no) {
@@ -327,4 +280,71 @@ function create_sales_invoice_from_dn(voucher_no) {
             }
         }
     });
+}
+
+function create_voucher(voucher_no, voucher_type) {
+    let dialog;
+    if (voucher_type === "Sales Order") {
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Sales Order"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label: __("Create Sales Invoice"),
+                    click() {
+                        create_sales_invoice_from_so(voucher_no);
+                        dialog.hide();
+                    }
+                },
+                {
+                    fieldtype: "Button",
+                    label: __("Create Delivery Note"),
+                    click() {
+                        create_delivery_note_from_so(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else if (voucher_type === "Sales Invoice") {
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Sales Invoice"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label: __("Create Payment Entry"),
+                    click() {
+                        create_payment_entry_from_si(voucher_no);
+                        dialog.hide();
+                    }
+                },
+                {
+                    fieldtype: "Button",
+                    label: __("Create Delivery Note"),
+                    click() {
+                        create_delivery_note_from_si(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else if (voucher_type === "Delivery Note") {
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Delivery Note"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label: __("Create Sales Invoice"),
+                    click() {
+                        create_sales_invoice_from_dn(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else {
+        frappe.msgprint(__("No create actions defined for this voucher type"));
+        return;
+    }
+    dialog.show();
 }

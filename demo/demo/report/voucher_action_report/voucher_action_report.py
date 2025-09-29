@@ -7,8 +7,8 @@ VOUCHER_MAP = {
     "Delivery Note": "Delivery Note",
 }
 
-def execute(filters=None):
-    filters = filters or {}
+def execute(filters=None):  
+    filters = filters
     voucher_type = filters.get("voucher_type")
     from_date = filters.get("from_date")
     to_date = filters.get("to_date")
@@ -47,8 +47,6 @@ def get_sales_rows(voucher_type, from_date, to_date, filters):
     date_field = "posting_date"
     if voucher_type == "Sales Order":
         date_field = "transaction_date"
-    elif voucher_type == "Delivery Note":
-        date_field = "posting_date"
 
     if from_date:
         conditions.append(f"{date_field} >= %(from_date)s")
@@ -105,22 +103,8 @@ def get_sales_rows(voucher_type, from_date, to_date, filters):
                 customer_group AS party_group,
                 posting_date,
                 status,
-                rounded_total AS total_amount,
-                per_billed AS pending_percent
-            FROM `tabDelivery Note`
-            WHERE {condition_str}
-            ORDER BY posting_date DESC
-        """
-    else:
-        query = f"""
-            SELECT
-                name AS voucher_no,
-                customer AS party,
-                customer_group AS party_group,
-                posting_date,
-                status,
                 rounded_total AS total_amount
-            FROM `tab{voucher_type}`
+            FROM `tabDelivery Note`
             WHERE {condition_str}
             ORDER BY posting_date DESC
         """
@@ -139,7 +123,9 @@ def get_items(voucher_type, voucher_no):
     if voucher_type == "Sales Order":
         items = frappe.get_all("Sales Order Item",
             filters={"parent": voucher_no},
-            fields=["item_code", "item_name", "qty", "rate", "amount"])
+            fields=["item_code", "item_name", "qty as total_qty", "rate", "amount", "delivered_qty"])
+        for item in items:
+            item["pending_qty"] = item["total_qty"] - item.get("delivered_qty", 0)
     elif voucher_type == "Sales Invoice":
         items = frappe.get_all("Sales Invoice Item",
             filters={"parent": voucher_no},
@@ -147,9 +133,7 @@ def get_items(voucher_type, voucher_no):
     elif voucher_type == "Delivery Note":
         items = frappe.get_all("Delivery Note Item",
             filters={"parent": voucher_no},
-            fields=["item_code", "item_name", "qty", "rate", "amount", "received_qty"])
-    else:
-        items = []
+            fields=["item_code", "item_name", "qty", "rate", "amount"])
     return items
 
 @frappe.whitelist()

@@ -4,7 +4,6 @@
 import frappe
 import json
 from frappe.utils import flt
-
 def execute(filters=None):
     columns = get_columns()
     data = get_data(filters)
@@ -117,6 +116,7 @@ def get_data(filters):
     """
     
     return frappe.db.sql(query, values, as_dict=True)
+
 #Update Function
 @frappe.whitelist()
 def get_voucher_items(voucher_type, voucher_no):
