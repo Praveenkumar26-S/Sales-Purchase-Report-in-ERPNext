@@ -1,14 +1,7 @@
 import frappe
 from erpnext.controllers.accounts_controller import update_child_qty_rate
 
-VOUCHER_MAP = {
-    "Sales Order": "Sales Order",
-    "Sales Invoice": "Sales Invoice",
-    "Delivery Note": "Delivery Note",
-}
-
 def execute(filters=None):  
-    filters = filters
     voucher_type = filters.get("voucher_type")
     from_date = filters.get("from_date")
     to_date = filters.get("to_date")
@@ -30,93 +23,96 @@ def execute(filters=None):
 
 
     for row in rows:
-        row["voucher_type"] = voucher_type
-        if "outstanding_amount" not in row:
-            row["outstanding_amount"] = 0
-        if "actions" not in row:
-            row["actions"] = ""
-        if "view_items" not in row:
-            row["view_items"] = ""
+        row.update({
+            "voucher_type": voucher_type,
+            "outstanding_amount": row.get("outstanding_amount", 0),
+            "actions": row.get("actions",""),
+            "view_items": row.get("view_items","")
+        })
 
     return columns, rows
 
 def get_sales_rows(voucher_type, from_date, to_date, filters):
-    conditions = ["docstatus < 2"]
+    date_fields = {
+        "Sales Order": "transaction_date",
+        "Sales Invoice": "posting_date",
+        "Delivery Note": "posting_date",
+        "Purchase Order": "transaction_date",
+        "Purchase Invoice": "posting_date",
+        "Purchase Receipt": "posting_date"
+    }
+
+    party_fields = {
+        "Sales Order": ("customer", "customer_group", "Customer"),
+        "Sales Invoice": ("customer", "customer_group", "Customer"),
+        "Delivery Note": ("customer", "customer_group", "Customer"),
+        "Purchase Order": ("supplier", "supplier_group", "Supplier"),
+        "Purchase Invoice": ("supplier", "supplier_group", "Supplier"),
+        "Purchase Receipt": ("supplier", "supplier_group", "Supplier")
+    }
+
+    outstanding_field_map = {
+        "Sales Invoice": "outstanding_amount",
+        "Purchase Invoice": "outstanding_amount"
+    }
+
+    alias_map = {
+        "Sales Order": "so",
+        "Sales Invoice": "si",
+        "Delivery Note": "dn",
+        "Purchase Order": "po",
+        "Purchase Invoice": "pi",
+        "Purchase Receipt": "pr"    
+    }
+
+    date_field = date_fields[voucher_type]
+    party_field, party_group_field, party_table = party_fields[voucher_type]
+    outstanding_field = outstanding_field_map.get(voucher_type, "0")
+    alias = alias_map[voucher_type]
+
+    conditions = [f"{alias}.docstatus < 2"]
     values = {}
 
-    date_field = "posting_date"
-    if voucher_type == "Sales Order":
-        date_field = "transaction_date"
-
     if from_date:
-        conditions.append(f"{date_field} >= %(from_date)s")
+        conditions.append(f"{alias}.{date_field} >= %(from_date)s")
         values["from_date"] = from_date
     if to_date:
-        conditions.append(f"{date_field} <= %(to_date)s")
+        conditions.append(f"{alias}.{date_field} <= %(to_date)s")
         values["to_date"] = to_date
-    if filters.get("customer"):
-        conditions.append("customer = %(customer)s")
-        values["customer"] = filters.get("customer")
-    if filters.get("status"):
-        conditions.append("status = %(status)s")
-        values["status"] = filters.get("status")
-
-    if filters.get("customer_group"):
-        conditions.append("customer_group = %(customer_group)s")
-        values["customer_group"] = filters.get("customer_group")
-
+    if filters.get("customer") and party_field == "customer":
+        conditions.append(f"{alias}.customer = %(customer)s")
+        values["customer"] = filters["customer"]
+    if filters.get("customer_group") and party_group_field == "customer_group":
+        conditions.append(f"{party_table.lower()}.{party_group_field} = %(customer_group)s")
+        values["customer_group"] = filters["customer_group"]
+    if filters.get("supplier") and party_field == "supplier":
+        conditions.append(f"{alias}.supplier = %(supplier)s")
+        values["supplier"] = filters["supplier"]
+    if filters.get("supplier_group") and party_group_field == "supplier_group":
+        conditions.append(f"{party_table.lower()}.{party_group_field} = %(supplier_group)s")
+        values["supplier_group"] = filters["supplier_group"]
 
     condition_str = " AND ".join(conditions)
 
-    if voucher_type == "Sales Order":
-        query = f"""
-            SELECT
-                name AS voucher_no,
-                customer AS party,
-                customer_group AS party_group,
-                transaction_date AS posting_date,
-                status,
-                rounded_total AS total_amount
-            FROM `tabSales Order`
-            WHERE {condition_str}
-            ORDER BY transaction_date DESC
-        """
-    elif voucher_type == "Sales Invoice":
-        query = f"""
-            SELECT
-                name AS voucher_no,
-                customer AS party,
-                customer_group AS party_group,
-                posting_date,
-                status,
-                rounded_total AS total_amount,
-                outstanding_amount
-            FROM `tabSales Invoice`
-            WHERE {condition_str}
-            ORDER BY posting_date DESC
-        """
-    elif voucher_type == "Delivery Note":
-        query = f"""
-            SELECT
-                name AS voucher_no,
-                customer AS party,
-                customer_group AS party_group,
-                posting_date,
-                status,
-                rounded_total AS total_amount
-            FROM `tabDelivery Note`
-            WHERE {condition_str}
-            ORDER BY posting_date DESC
-        """
+    query = f"""
+        SELECT
+            {alias}.name AS voucher_no,
+            {alias}.{party_field} AS party,
+            {party_table.lower()}.{party_group_field} AS party_group,
+            {alias}.{date_field} AS posting_date,
+            {alias}.status,
+            {alias}.rounded_total AS total_amount,
+            {outstanding_field} AS outstanding_amount,
+            '' AS actions,
+            '' AS view_items
+        FROM `tab{voucher_type}` {alias}
+        LEFT JOIN `tab{party_table}` {party_table.lower()}
+            ON {alias}.{party_field} = {party_table.lower()}.name
+        WHERE {condition_str}
+        ORDER BY {alias}.{date_field} DESC
+    """
 
-    rows = frappe.db.sql(query, values, as_dict=True)
-
-    for row in rows:
-        row["actions"] = ""
-        row["view_items"] = ""
-
-    return rows
-    
+    return frappe.db.sql(query, values, as_dict=True)
 
 @frappe.whitelist()
 def get_items(voucher_type, voucher_no):
@@ -134,7 +130,22 @@ def get_items(voucher_type, voucher_no):
         items = frappe.get_all("Delivery Note Item",
             filters={"parent": voucher_no},
             fields=["item_code", "item_name", "qty", "rate", "amount"])
+    elif voucher_type == "Purchase Order":
+        items = frappe.get_all("Purchase Order Item",
+            filters={"parent": voucher_no},
+            fields=["item_code", "item_name", "qty", "rate", "amount", "received_qty"])
+        for item in items:
+            item["pending_qty"] = item["qty"] - item.get("received_qty", 0)
+    elif voucher_type == "Purchase Invoice":
+        items = frappe.get_all("Purchase Invoice Item",
+            filters={"parent": voucher_no},
+            fields=["item_code", "item_name", "qty", "rate", "amount"])
+    elif voucher_type == "Purchase Receipt":
+        items = frappe.get_all("Purchase Receipt Item",
+            filters={"parent": voucher_no},
+            fields=["item_code", "item_name", "qty", "rate", "amount"])
     return items
+
 
 @frappe.whitelist()
 def update_salesorder_items_custom(parent_doctype, trans_items, parent_doctype_name):

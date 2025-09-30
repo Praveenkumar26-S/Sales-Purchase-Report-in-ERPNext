@@ -14,32 +14,44 @@ frappe.query_reports["Voucher Action Report"] = {
             "fieldname":"voucher_type",
             "label": __("Voucher Type"),
             "fieldtype": "Select",
-            "options": ["Sales Order", "Sales Invoice", "Delivery Note"]
+            "options": ["Sales Order", "Sales Invoice", "Delivery Note", "Purchase Order", "Purchase Invoice", "Purchase Receipt"] 
         },
 		{
 			"fieldname":"status",
 			"label": __("Status"),
 			"fieldtype": "Select",
-			"options": [ "","Draft","To Deliver and Bill","To Bill","To Deliver","Completed","Cancelled","Overdue"]
+			"options": [ "","Draft","To Deliver and Bill","To Bill","To Deliver","Completed","Cancelled","Overdue","To Receive and Bill", "To Receive", "To Bill", "Closed"]
 		},
         {
             "fieldname":"customer",
             "label": __("Customer"),
             "fieldtype": "Link",
-            "options": "Customer"
+            "options": "Customer",
+            "depends_on": "eval:in_list(['Sales Order','Sales Invoice','Delivery Note'], frappe.query_report.get_filter_value('voucher_type'))"
         },
         {
             "fieldname":"customer_group",
             "label": __("Customer Group"),
             "fieldtype": "Link",
-            "options": "Customer Group"
+            "options": "Customer Group",
+            "depends_on": "eval:in_list(['Sales Order','Sales Invoice','Delivery Note'], frappe.query_report.get_filter_value('voucher_type'))"
+        },
+        {
+            "fieldname":"supplier",
+            "label": __("Supplier"),
+            "fieldtype": "Link",
+            "options": "Supplier",
+            "depends_on": "eval:in_list(['Purchase Order','Purchase Invoice','Purchase Receipt'], frappe.query_report.get_filter_value('voucher_type'))"
+        },
+        {
+            "fieldname":"supplier_group",
+            "label": __("Supplier Group"),
+            "fieldtype": "Link",
+            "options": "Supplier Group",
+            "depends_on": "eval:in_list(['Purchase Order','Purchase Invoice','Purchase Receipt'], frappe.query_report.get_filter_value('voucher_type'))"
         }
     ],
-    onload: function(report) {
-        report.page.add_inner_button(__('Refresh'), function() {
-            report.refresh();
-        });
-    },
+
     formatter: function(value, row, column, data, default_formatter) {
         value = default_formatter(value, row, column, data);
 
@@ -202,7 +214,7 @@ function view_items_dialog(voucher_type, voucher_no) {
         }
     });
 }
-
+// Sales
 function create_sales_invoice_from_so(voucher_no) {
     frappe.call({
         method: "erpnext.selling.doctype.sales_order.sales_order.make_sales_invoice",
@@ -281,6 +293,81 @@ function create_sales_invoice_from_dn(voucher_no) {
         }
     });
 }
+// Purchase
+function create_purchase_invoice_from_po(voucher_no){
+    frappe.call({
+        method: "erpnext.buying.doctype.purchase_order.purchase_order.make_purchase_invoice",
+        args: { source_name: voucher_no},
+        callback: function(r){
+            if (r.message){
+                frappe.model.with_doctype("Purchase Invoice", function(){
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Purchase Invoice", doc.name);
+                });
+            }
+        }
+    });
+}
+
+function create_purchase_receipt_from_po(voucher_no){
+    frappe.call({
+        method: "erpnext.buying.doctype.purchase_order.purchase_order.make_purchase_receipt",
+        args: { source_name: voucher_no},
+        callback: function(r){
+            if (r.message){
+                frappe.model.with_doctype("Purchase Receipt", function(){
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Purchase Receipt", doc.name);
+                });
+            }
+        }
+    });
+}
+
+function create_purchase_receipt_from_pi(voucher_no) {
+    frappe.call({
+        method: "erpnext.accounts.doctype.purchase_invoice.purchase_invoice.make_purchase_receipt",
+        args: { source_name: voucher_no },
+        callback: function(r) {
+            if (r.message) {
+                frappe.model.with_doctype("Purchase Receipt", function() {
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Purchase Receipt", doc.name);
+                });
+            }
+        }
+    });
+}
+
+function create_payment_entry_from_pi(voucher_no){
+    frappe.call({
+        method: "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
+        args:{ dt: "Purchase Invoice", dn: voucher_no},
+        callback: function(r){
+            if(r.message){
+                frappe.model.with_doctype("Payment Entry", function(){
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Payment Entry", doc.name);
+                });
+            }
+        }
+    });
+}
+
+function create_purchase_invoice_from_pr(voucher_no){
+    frappe.call({
+        method: "erpnext.stock.doctype.purchase_receipt.purchase_receipt.make_purchase_invoice",
+        args:{source_name: voucher_no},
+        callback: function(r){
+            if(r.message){
+                frappe.model.with_doctype("Purchase Invoice", function(){
+                    var doc = frappe.model.sync(r.message)[0];
+                    frappe.set_route("Form", "Purchase Invoice", doc.name);
+                });
+            }
+        }
+    });
+}
 
 function create_voucher(voucher_no, voucher_type) {
     let dialog;
@@ -342,8 +429,66 @@ function create_voucher(voucher_no, voucher_type) {
                 }
             ]
         });
+    } else if (voucher_type === "Purchase Order"){
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Purchase Order"),
+            fields: [
+                {
+                    fieldtype:"Button",
+                    label: __("Create Purchase Invoice"),
+                    click(){
+                        create_purchase_invoice_from_po(voucher_no);
+                        dialog.hide();
+                    }
+                },
+                {
+                    fieldtype:"Button",
+                    label: __("Create Purchase Receipt"),
+                    click(){
+                        create_purchase_receipt_from_po(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else if (voucher_type === "Purchase Invoice"){
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Purchase Invoice"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label: __("Create Purchase Receipt"),
+                    click(){
+                        create_purchase_receipt_from_pi(voucher_no);
+                        dialog.hide();
+                    }
+                },
+                {
+                    fieldtype: "Button",
+                    label: __("Create Payment Entry"),
+                    click(){
+                        create_payment_entry_from_pi(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
+    } else if (voucher_type === "Purchase Receipt"){
+        dialog = new frappe.ui.Dialog({
+            title: __("Create for Purchase Receipt"),
+            fields: [
+                {
+                    fieldtype: "Button",
+                    label:__("Create Purchase Invoice"),
+                    click(){
+                        create_purchase_invoice_from_pr(voucher_no);
+                        dialog.hide();
+                    }
+                }
+            ]
+        });
     } else {
-        frappe.msgprint(__("No create actions defined for this voucher type"));
+        frappe.msgprint(__("No create actions for this voucher type"));
         return;
     }
     dialog.show();
