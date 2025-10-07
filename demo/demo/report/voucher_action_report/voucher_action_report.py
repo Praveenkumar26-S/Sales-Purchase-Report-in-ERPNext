@@ -1,4 +1,6 @@
 import frappe
+import json
+from frappe.utils import flt, nowdate
 from erpnext.controllers.accounts_controller import update_child_qty_rate
 
 def execute(filters=None):  
@@ -20,8 +22,7 @@ def execute(filters=None):
         {"label": "Actions", "fieldname": "actions", "fieldtype": "Data", "width": 180},
         {"label": "View Items", "fieldname": "view_items", "fieldtype": "Data", "width": 100},
     ]
-
-
+    
     for row in rows:
         row.update({
             "voucher_type": voucher_type,
@@ -71,6 +72,18 @@ def get_sales_rows(voucher_type, from_date, to_date, filters):
     alias = alias_map[voucher_type]
 
     conditions = [f"{alias}.docstatus < 2"]
+
+    if voucher_type == "Sales Order":
+        conditions.append(f"{alias}.per_delivered < 100")
+        conditions.append(f"{alias}.per_billed < 100")
+    elif voucher_type == "Purchase Order":
+        conditions.append(f"{alias}.per_received < 100")
+        conditions.append(f"{alias}.per_billed < 100")
+    elif voucher_type in ["Sales Invoice", "Purchase Invoice"]:
+        conditions.append(f"{alias}.outstanding_amount > 0")
+    elif voucher_type in ["Delivery Note", "Purchase Receipt"]:
+        conditions.append(f"{alias}.status != 'Completed'")
+
     values = {}
 
     if from_date:
@@ -79,6 +92,9 @@ def get_sales_rows(voucher_type, from_date, to_date, filters):
     if to_date:
         conditions.append(f"{alias}.{date_field} <= %(to_date)s")
         values["to_date"] = to_date
+    if filters.get("status"):
+        conditions.append(f"{alias}.status = %(status)s")
+        values["status"] = filters["status"]
     if filters.get("customer") and party_field == "customer":
         conditions.append(f"{alias}.customer = %(customer)s")
         values["customer"] = filters["customer"]
@@ -146,7 +162,215 @@ def get_items(voucher_type, voucher_no):
             fields=["item_code", "item_name", "qty", "rate", "amount"])
     return items
 
+@frappe.whitelist()
+def update_sales_purchase_order_items_custom(parent_doctype, trans_items, parent_doctype_name):
+    update_child_qty_rate(parent_doctype, trans_items, parent_doctype_name, child_docname="items")
+    
+# Sales
+@frappe.whitelist()
+def create_combined_sales_invoice(sales_orders):
+    if isinstance(sales_orders, str):
+        sales_orders = json.loads(sales_orders)
+
+    so_docs = [frappe.get_doc("Sales Order", so) for so in sales_orders]
+
+    for so in so_docs:
+        existing_si = frappe.db.exists({
+            "doctype": "Sales Invoice Item",
+            "sales_order": so.name,
+            "parenttype": "Sales Invoice",
+            "parentfield": "items"
+        })
+        if existing_si:
+            frappe.throw(f"Sales Order {so.name} is already invoiced. Cannot create combined invoice again.")
+
+    customers = list(set([so.customer for so in so_docs]))
+    if len(customers) > 1:
+        frappe.throw("Selected Sales Orders belong to different customers.")
+    customer = customers[0]
+
+    invoice = frappe.new_doc("Sales Invoice")
+    invoice.customer = customer
+    invoice.due_date = nowdate()
+    invoice.naming_series = "ACC-SINV-.YYYY.-.#####"
+
+    for so in so_docs:
+        for item in so.items:
+            pending_qty = flt(item.qty) - flt(item.delivered_qty)
+            if pending_qty > 0:
+                invoice.append("items", {
+                    "item_code": item.item_code,
+                    "qty": pending_qty,
+                    "rate": item.rate,
+                    "uom": item.uom,
+                    "warehouse": item.warehouse,
+                    "sales_order": so.name,
+                    "description": item.description
+                })
+
+    if not invoice.items:
+        frappe.throw("No pending items found to invoice.")
+
+    invoice.flags.ignore_permissions = True
+    invoice.insert()
+
+    frappe.msgprint(f"Created Combined Sales Invoice <b>{invoice.name}</b> for Customer <b>{customer}</b>.")
+    return invoice.name
+
 
 @frappe.whitelist()
-def update_salesorder_items_custom(parent_doctype, trans_items, parent_doctype_name):
-    update_child_qty_rate(parent_doctype, trans_items, parent_doctype_name, child_docname="items")
+def create_combined_payment_entry(sales_invoices):
+    if isinstance(sales_invoices, str):
+        sales_invoices = json.loads(sales_invoices)
+
+    if not sales_invoices:
+        frappe.throw("No Sales Invoices selected.")
+
+    si_docs = [frappe.get_doc("Sales Invoice", si) for si in sales_invoices]
+
+    customers = list(set([si.customer for si in si_docs]))
+    if len(customers) > 1:
+        frappe.throw("Selected invoices belong to different customers.")
+    customer = customers[0]
+
+    unpaid_invoices = [si for si in si_docs if flt(si.outstanding_amount) > 0]
+    if not unpaid_invoices:
+        frappe.throw("All selected invoices are already fully paid.")
+
+    pe = frappe.new_doc("Payment Entry")
+    pe.payment_type = "Receive"
+    pe.party_type = "Customer"
+    pe.party = customer
+    pe.posting_date = nowdate()
+    pe.mode_of_payment = "Cash"
+    pe.company = unpaid_invoices[0].company
+    pe.paid_to = frappe.db.get_value("Company", pe.company, "default_cash_account")
+
+    pe.received_amount = 0
+    pe.paid_amount = 0
+
+    for si in unpaid_invoices:
+        amount = flt(si.outstanding_amount)
+        pe.append("references", {
+            "reference_doctype": "Sales Invoice",
+            "reference_name": si.name,
+            "due_date": si.due_date,
+            "total_amount": si.grand_total,
+            "outstanding_amount": si.outstanding_amount,
+            "allocated_amount": amount
+        })
+        pe.received_amount += amount
+        pe.paid_amount += amount
+
+    pe.flags.ignore_permissions = True
+    pe.insert()
+
+    frappe.msgprint(f"Created Combined Payment Entry <b>{pe.name}</b> for Customer <b>{customer}</b>.")
+    return pe.name
+
+# Purchase
+@frappe.whitelist()
+def create_combined_purchase_invoice(purchase_orders):
+    """Create a single Purchase Invoice from multiple Purchase Orders (same Supplier)."""
+    if isinstance(purchase_orders, str):
+        purchase_orders = json.loads(purchase_orders)
+
+    if not purchase_orders:
+        frappe.throw("No Purchase Orders selected.")
+
+    po_docs = [frappe.get_doc("Purchase Order", po) for po in purchase_orders]
+
+    for po in po_docs:
+        existing_pi = frappe.db.exists({
+            "doctype": "Purchase Invoice Item",
+            "purchase_order": po.name,
+            "parenttype": "Purchase Invoice",
+            "parentfield": "items"
+        })
+        if existing_pi:
+            frappe.throw(f"Purchase Order {po.name} is already invoiced.")
+
+    suppliers = list(set([po.supplier for po in po_docs]))
+    if len(suppliers) > 1:
+        frappe.throw("Selected Purchase Orders belong to different suppliers.")
+    supplier = suppliers[0]
+
+    invoice = frappe.new_doc("Purchase Invoice")
+    invoice.supplier = supplier
+    invoice.due_date = nowdate()
+    invoice.naming_series = "ACC-PINV-.YYYY.-.#####"
+
+    for po in po_docs:
+        for item in po.items:
+            pending_qty = flt(item.qty) - flt(item.received_qty)
+            if pending_qty > 0:
+                invoice.append("items", {
+                    "item_code": item.item_code,
+                    "qty": pending_qty,
+                    "rate": item.rate,
+                    "uom": item.uom,
+                    "warehouse": item.warehouse,
+                    "purchase_order": po.name,
+                    "description": item.description
+                })
+
+    if not invoice.items:
+        frappe.throw("No pending items found to bill.")
+
+    invoice.flags.ignore_permissions = True
+    invoice.insert()
+
+    frappe.msgprint(f"Created Combined Purchase Invoice <b>{invoice.name}</b> for Supplier <b>{supplier}</b>.")
+    return invoice.name
+
+
+@frappe.whitelist()
+def create_combined_purchase_payment_entry(purchase_invoices):
+    """Create one Payment Entry for multiple Purchase Invoices (same Supplier)."""
+    if isinstance(purchase_invoices, str):
+        purchase_invoices = json.loads(purchase_invoices)
+
+    if not purchase_invoices:
+        frappe.throw("No Purchase Invoices selected.")
+
+    pi_docs = [frappe.get_doc("Purchase Invoice", pi) for pi in purchase_invoices]
+
+    suppliers = list(set([pi.supplier for pi in pi_docs]))
+    if len(suppliers) > 1:
+        frappe.throw("Selected invoices belong to different suppliers.")
+    supplier = suppliers[0]
+
+    unpaid_invoices = [pi for pi in pi_docs if flt(pi.outstanding_amount) > 0]
+    if not unpaid_invoices:
+        frappe.throw("All selected invoices are already paid.")
+
+    pe = frappe.new_doc("Payment Entry")
+    pe.payment_type = "Pay"
+    pe.party_type = "Supplier"
+    pe.party = supplier
+    pe.posting_date = nowdate()
+    pe.mode_of_payment = "Cash"
+    pe.company = unpaid_invoices[0].company
+    pe.paid_from = frappe.db.get_value("Company", pe.company, "default_cash_account")
+
+    pe.paid_amount = 0
+    pe.received_amount = 0
+
+    for pi in unpaid_invoices:
+        amount = flt(pi.outstanding_amount)
+        pe.append("references", {
+            "reference_doctype": "Purchase Invoice",
+            "reference_name": pi.name,
+            "due_date": pi.due_date,
+            "total_amount": pi.grand_total,
+            "outstanding_amount": pi.outstanding_amount,
+            "allocated_amount": amount
+        })
+        pe.paid_amount += amount
+        pe.received_amount += amount
+
+    pe.flags.ignore_permissions = True
+    pe.insert()
+
+    frappe.msgprint(f"Created Combined Payment Entry <b>{pe.name}</b> for Supplier <b>{supplier}</b>.")
+    return pe.name

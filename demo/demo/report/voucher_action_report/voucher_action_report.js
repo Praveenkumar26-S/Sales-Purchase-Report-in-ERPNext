@@ -52,6 +52,147 @@ frappe.query_reports["Voucher Action Report"] = {
         }
     ],
 
+    
+    onload: function (report) {
+        report.page.add_inner_button(__('Create Combined Sales Invoice'), function () {
+            console.log("Sales Invoice Button Clicked");
+            let selected = report.get_checked_items();
+
+            if (!selected || !selected.length) {
+                frappe.msgprint("Please select at least one Sales Order.");
+                return;
+            }
+
+            let invalid = selected.some(r => r.voucher_type !== "Sales Order");
+            if (invalid) {
+                frappe.msgprint("You can only create a combined Sales Invoice for Sales Orders.");
+                return;
+            }
+
+            let sales_orders = selected.map(row => row.voucher_no);
+            console.log("Selected Sales Orders:", sales_orders);
+
+            frappe.call({
+                method: "demo.demo.report.voucher_action_report.voucher_action_report.create_combined_sales_invoice",
+                args: { sales_orders: JSON.stringify(sales_orders) },
+                freeze: true,
+                freeze_message: __("Creating combined Sales Invoice..."),
+                callback: function (r) {
+                    if (!r.exc && r.message) {
+                        frappe.msgprint(__('Sales Invoice created: {0}', [r.message]));
+                        frappe.set_route("Form", "Sales Invoice", r.message);
+                    } else {
+                        frappe.msgprint(__('Failed to create combined Sales Invoice.'));
+                    }
+                }
+            });
+        });
+
+        report.page.add_inner_button(__('Create Combined Sales Payment Entry'), function () {
+            console.log("Sales Payment Button Clicked");
+            let selected = report.get_checked_items();
+
+            if (!selected || !selected.length) {
+                frappe.msgprint("Please select at least one Sales Invoice.");
+                return;
+            }
+
+            let invalid = selected.some(r => r.voucher_type !== "Sales Invoice");
+            if (invalid) {
+                frappe.msgprint("You can only create a combined Payment Entry for Sales Invoices.");
+                return;
+            }
+
+            let invoices = selected.map(row => row.voucher_no);
+
+            frappe.call({
+                method: "demo.demo.report.voucher_action_report.voucher_action_report.create_combined_payment_entry",
+                args: { sales_invoices: JSON.stringify(invoices) },
+                freeze: true,
+                freeze_message: __("Creating combined Payment Entry..."),
+                callback: function (r) {
+                    if (!r.exc && r.message) {
+                        frappe.msgprint(__('Payment Entry created: {0}', [r.message]));
+                        frappe.set_route("Form", "Payment Entry", r.message);
+                    }
+                }
+            });
+        });
+
+        report.page.add_inner_button(__('Create Combined Purchase Invoice'), function () {
+            console.log("Purchase Invoice Button Clicked");
+            let selected = report.get_checked_items();
+
+            if (!selected || !selected.length) {
+                frappe.msgprint("Please select at least one Purchase Order.");
+                return;
+            }
+
+            let invalid = selected.some(r => r.voucher_type !== "Purchase Order");
+            if (invalid) {
+                frappe.msgprint("You can only create a combined Purchase Invoice for Purchase Orders.");
+                return;
+            }
+
+            let purchase_orders = selected.map(row => row.voucher_no);
+            console.log("Selected Purchase Orders:", purchase_orders);
+
+            frappe.call({
+                method: "demo.demo.report.voucher_action_report.voucher_action_report.create_combined_purchase_invoice",
+                args: { purchase_orders: JSON.stringify(purchase_orders) },
+                freeze: true,
+                freeze_message: __("Creating combined Purchase Invoice..."),
+                callback: function (r) {
+                    if (!r.exc && r.message) {
+                        frappe.msgprint(__('Purchase Invoice created: {0}', [r.message]));
+                        frappe.set_route("Form", "Purchase Invoice", r.message);
+                    } else {
+                        frappe.msgprint(__('Failed to create combined Purchase Invoice.'));
+                    }
+                }
+            });
+        });
+
+        report.page.add_inner_button(__('Create Combined Purchase Payment Entry'), function () {
+            console.log("Purchase Payment Button Clicked");
+            let selected = report.get_checked_items();
+
+            if (!selected || !selected.length) {
+                frappe.msgprint("Please select at least one Purchase Invoice.");
+                return;
+            }
+
+            let invalid = selected.some(r => r.voucher_type !== "Purchase Invoice");
+            if (invalid) {
+                frappe.msgprint("You can only create a combined Payment Entry for Purchase Invoices.");
+                return;
+            }
+
+            let purchase_invoices = selected.map(row => row.voucher_no);
+            console.log("Selected Purchase Invoices:", purchase_invoices);
+
+            frappe.call({
+                method: "demo.demo.report.voucher_action_report.voucher_action_report.create_combined_purchase_payment_entry",
+                args: { purchase_invoices: JSON.stringify(purchase_invoices) },
+                freeze: true,
+                freeze_message: __("Creating combined Purchase Payment Entry..."),
+                callback: function (r) {
+                    if (!r.exc && r.message) {
+                        frappe.msgprint(__('Payment Entry created: {0}', [r.message]));
+                        frappe.set_route("Form", "Payment Entry", r.message);
+                    } else {
+                        frappe.msgprint(__('Failed to create combined Payment Entry.'));
+                    }
+                }
+            });
+        });
+    },
+
+    get_datatable_options(options) {
+        options.checkboxColumn = true;
+        return options;
+    },
+
     formatter: function(value, row, column, data, default_formatter) {
         value = default_formatter(value, row, column, data);
 
@@ -72,18 +213,23 @@ frappe.query_reports["Voucher Action Report"] = {
 };
 
 function custom_update_voucher(voucher_no, voucher_type) {
-    if (voucher_type === "Sales Order") {
+    if (voucher_type === "Sales Order" || voucher_type === "Purchase Order") {
+        let child_doctype = voucher_type === "Sales Order" ? "Sales Order Item" : "Purchase Order Item";
+        let update_method = voucher_type === "Sales Order"
+            ? "demo.demo.report.voucher_action_report.voucher_action_report.update_sales_purchase_order_items_custom"
+            : "demo.demo.report.voucher_action_report.voucher_action_report.update_sales_purchase_order_items_custom";
+
         $.when(
             frappe.call({
                 method: "frappe.client.get",
-                args: { doctype: "Sales Order", name: voucher_no }
+                args: { doctype: voucher_type, name: voucher_no }
             }),
-            frappe.db.get_doc("DocType", "Sales Order Item")
-        ).then(function(sales_order_res, sales_order_item_doc) {
-            let sales_order = sales_order_res[0].message;
+            frappe.db.get_doc("DocType", child_doctype)
+        ).then(function(voucher_res, child_doc) {
+            let voucher = voucher_res[0].message;
             let fields = [];
 
-            sales_order_item_doc.fields.forEach(function(df) {
+            child_doc.fields.forEach(function(df) {
                 if (["parent", "idx", "docstatus"].indexOf(df.fieldname) === -1) {
                     fields.push({
                         fieldtype: df.fieldtype,
@@ -100,7 +246,7 @@ function custom_update_voucher(voucher_no, voucher_type) {
 
             fields.push({ fieldtype: 'Data', fieldname: 'docname', label: 'Docname', hidden: 1 });
 
-            let items_data = sales_order.items.map(function(item) {
+            let items_data = voucher.items.map(function(item) {
                 let obj = {};
                 fields.forEach(function(field) {
                     obj[field.fieldname] = item[field.fieldname];
@@ -125,15 +271,15 @@ function custom_update_voucher(voucher_no, voucher_type) {
                 primary_action_label: __("Update"),
                 primary_action(values) {
                     frappe.call({
-                        method: "demo.demo.report.voucher_action_report.voucher_action_report.update_salesorder_items_custom",
+                        method: update_method,
                         args: {
-                            parent_doctype: "Sales Order",
+                            parent_doctype: voucher_type,
                             trans_items: JSON.stringify(values.items),
                             parent_doctype_name: voucher_no
                         },
                         callback: function(resp) {
                             if (!resp.exc) {
-                                frappe.msgprint(__("Sales Order items updated."));
+                                frappe.msgprint(__(voucher_type + " items updated."));
                                 dialog.hide();
                                 frappe.query_report.refresh();
                             } else {
