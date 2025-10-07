@@ -19,7 +19,7 @@ def execute(filters=None):
         {"label": "Status", "fieldname": "status", "fieldtype": "Data", "width": 100},
         {"label": "Total Amount", "fieldname": "total_amount", "fieldtype": "Currency", "width": 120},
         {"label": "Outstanding Amount", "fieldname": "outstanding_amount", "fieldtype": "Currency", "width": 120},
-        {"label": "Actions", "fieldname": "actions", "fieldtype": "Data", "width": 180},
+        {"label": "Actions", "fieldname": "actions", "fieldtype": "Data", "width": 150},
         {"label": "View Items", "fieldname": "view_items", "fieldtype": "Data", "width": 100},
     ]
     
@@ -271,7 +271,6 @@ def create_combined_payment_entry(sales_invoices):
 # Purchase
 @frappe.whitelist()
 def create_combined_purchase_invoice(purchase_orders):
-    """Create a single Purchase Invoice from multiple Purchase Orders (same Supplier)."""
     if isinstance(purchase_orders, str):
         purchase_orders = json.loads(purchase_orders)
 
@@ -326,7 +325,6 @@ def create_combined_purchase_invoice(purchase_orders):
 
 @frappe.whitelist()
 def create_combined_purchase_payment_entry(purchase_invoices):
-    """Create one Payment Entry for multiple Purchase Invoices (same Supplier)."""
     if isinstance(purchase_invoices, str):
         purchase_invoices = json.loads(purchase_invoices)
 
