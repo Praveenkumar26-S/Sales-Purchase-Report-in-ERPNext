@@ -182,7 +182,7 @@ def create_combined_sales_invoice(sales_orders):
             "parentfield": "items"
         })
         if existing_si:
-            frappe.throw(f"Sales Order {so.name} is already invoiced. Cannot create combined invoice again.")
+            frappe.throw(f"Sales Order {so.name} is already invoiced.")
 
     customers = list(set([so.customer for so in so_docs]))
     if len(customers) > 1:
@@ -222,9 +222,6 @@ def create_combined_sales_invoice(sales_orders):
 def create_combined_payment_entry(sales_invoices):
     if isinstance(sales_invoices, str):
         sales_invoices = json.loads(sales_invoices)
-
-    if not sales_invoices:
-        frappe.throw("No Sales Invoices selected.")
 
     si_docs = [frappe.get_doc("Sales Invoice", si) for si in sales_invoices]
 
@@ -273,9 +270,6 @@ def create_combined_payment_entry(sales_invoices):
 def create_combined_purchase_invoice(purchase_orders):
     if isinstance(purchase_orders, str):
         purchase_orders = json.loads(purchase_orders)
-
-    if not purchase_orders:
-        frappe.throw("No Purchase Orders selected.")
 
     po_docs = [frappe.get_doc("Purchase Order", po) for po in purchase_orders]
 
@@ -328,9 +322,6 @@ def create_combined_purchase_payment_entry(purchase_invoices):
     if isinstance(purchase_invoices, str):
         purchase_invoices = json.loads(purchase_invoices)
 
-    if not purchase_invoices:
-        frappe.throw("No Purchase Invoices selected.")
-
     pi_docs = [frappe.get_doc("Purchase Invoice", pi) for pi in purchase_invoices]
 
     suppliers = list(set([pi.supplier for pi in pi_docs]))
@@ -362,7 +353,7 @@ def create_combined_purchase_payment_entry(purchase_invoices):
             "due_date": pi.due_date,
             "total_amount": pi.grand_total,
             "outstanding_amount": pi.outstanding_amount,
-            "allocated_amount": amount
+            "allocated_amount": min(amount, flt(pi.outstanding_amount, 2))
         })
         pe.paid_amount += amount
         pe.received_amount += amount

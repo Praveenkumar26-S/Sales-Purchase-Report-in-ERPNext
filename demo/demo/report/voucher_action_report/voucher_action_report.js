@@ -54,7 +54,7 @@ frappe.query_reports["Voucher Action Report"] = {
 
     
     onload: function (report) {
-        report.page.add_inner_button(__('Create Combined Sales Invoice'), function () {
+        report.page.add_inner_button(__('Combined Sales Invoice'), function () {
             console.log("Sales Invoice Button Clicked");
             let selected = report.get_checked_items();
 
@@ -86,9 +86,9 @@ frappe.query_reports["Voucher Action Report"] = {
                     }
                 }
             });
-        });
+        },"Create");
 
-        report.page.add_inner_button(__('Create Combined Sales Payment Entry'), function () {
+        report.page.add_inner_button(__('Combined Sales Payment Entry'), function () {
             console.log("Sales Payment Button Clicked");
             let selected = report.get_checked_items();
 
@@ -117,9 +117,9 @@ frappe.query_reports["Voucher Action Report"] = {
                     }
                 }
             });
-        });
+        }, "Create");
 
-        report.page.add_inner_button(__('Create Combined Purchase Invoice'), function () {
+        report.page.add_inner_button(__('Combined Purchase Invoice'), function () {
             console.log("Purchase Invoice Button Clicked");
             let selected = report.get_checked_items();
 
@@ -151,9 +151,9 @@ frappe.query_reports["Voucher Action Report"] = {
                     }
                 }
             });
-        });
+        }, "Create");
 
-        report.page.add_inner_button(__('Create Combined Purchase Payment Entry'), function () {
+        report.page.add_inner_button(__('Combined Purchase Payment Entry'), function () {
             console.log("Purchase Payment Button Clicked");
             let selected = report.get_checked_items();
 
@@ -185,7 +185,7 @@ frappe.query_reports["Voucher Action Report"] = {
                     }
                 }
             });
-        });
+        },"Create");
     },
 
     get_datatable_options(options) {
