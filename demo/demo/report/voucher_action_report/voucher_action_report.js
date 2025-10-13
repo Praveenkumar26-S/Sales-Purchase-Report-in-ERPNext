@@ -304,6 +304,7 @@ function view_items_dialog(voucher_type, voucher_no) {
             if(r.message) {
                 let dialog = new frappe.ui.Dialog({
                     title: __('Items of {0}', [voucher_no]),
+                    size: 'large',
                     fields: [
                         {fieldtype: 'HTML', fieldname: 'items_html'}
                     ]
@@ -318,8 +319,21 @@ function view_items_dialog(voucher_type, voucher_no) {
                         <th>Total Qty</th>
                         <th>Rate</th>
                         <th>Amount</th>
+                        <th>Invoiced Qty</th>
+                        <th>Pending Invoiced Qty</th>
                         <th>Delivered Qty</th>
                         <th>Pending Qty</th>`;
+                } else if (voucher_type === "Purchase Order") {
+                    html += `
+                        <th>Item Code</th>
+                        <th>Item Name</th>
+                        <th>Qty</th>
+                        <th>Rate</th>
+                        <th>Amount</th>
+                        <th>Billed Qty</th>
+                        <th>Pending Billed Qty</th>
+                        <th>Received Qty</th>
+                        <th>Pending Received Qty</th>`;
                 } else {
                     html += `
                         <th>Item Code</th>
@@ -341,8 +355,19 @@ function view_items_dialog(voucher_type, voucher_no) {
                             <td>${item.total_qty}</td>
                             <td>${item.rate}</td>
                             <td>${item.amount}</td>
+                            <td>${item.invoiced_qty || 0}</td>
+                            <td>${item.pending_invoiced_qty || 0}</td>
                             <td>${item.delivered_qty || 0}</td>
-                            <td>${item.pending_qty || (item.total_qty - (item.delivered_qty || 0)) || 0}</td>`;
+                            <td>${item.pending_qty || 0}</td>`;
+                    } else if (voucher_type === "Purchase Order") {
+                        html += `
+                            <td>${item.qty}</td>
+                            <td>${item.rate}</td>
+                            <td>${item.amount}</td>
+                            <td>${item.billed_qty || 0}</td>
+                            <td>${item.pending_billed_qty || 0}</td>
+                            <td>${item.received_qty || 0}</td>
+                            <td>${item.pending_received_qty || 0}</td>`;
                     } else {
                         html += `
                             <td>${item.qty}</td>
@@ -360,6 +385,7 @@ function view_items_dialog(voucher_type, voucher_no) {
         }
     });
 }
+
 // Sales
 function create_sales_invoice_from_so(voucher_no) {
     frappe.call({
